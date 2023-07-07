@@ -12,24 +12,21 @@ from rich import print
 from google.cloud import storage, bigquery
 
 
-SA_PATH = "./project-etl.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "./project-etl.json"
 
+STORAGE_CLIENT = storage.Client()
 
 def months_to_str(month: list):
     month_range = '-'.join(str(month) for month in months)
     return month_range
 
 
-def upload_to_gcs(parquet, months: list):
-
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SA_PATH
-    client = storage.Client()
-    bucket = client.get_bucket("mle-data-pipeline-project")
-
-    file_name = f"{colour}_tripdata_2021-{months_to_str(months)}.parquet"
+def upload_to_gcs(parquet, parquet_file_name: str, bucket_name: str):
+    client = STORAGE_CLIENT
+    bucket = client.get_bucket(bucket_name)
 
     bucket.blob(
-        f'{colour}_taxi/{file_name}').upload_from_string(parquet, 'text/parquet')
+        f'{colour}_taxi/{parquet_file_name}').upload_from_string(parquet, 'text/parquet')
     print("Successfully uploaded the data!")
 
 
@@ -37,7 +34,7 @@ def upload_to_gcs(parquet, months: list):
       retries=3,
       retry_delay_seconds=60,
       log_prints=True)
-def extract(url: str, months: list, url_template: str, gcs_destination: str) -> pd.DataFrame:
+def extract(url_template: str, bucket_name: str, parquet_filename: str):
     """
 
     """
@@ -58,7 +55,7 @@ def extract(url: str, months: list, url_template: str, gcs_destination: str) -> 
         print('\nUploading data to GCS...')
         parquet = df_taxi.to_parquet()
 
-        upload_to_gcs(parquet, months)
+        upload_to_gcs(parquet, parquet_filename, bucket_name)
 
     finally:
         # Clean up the temporary directory and its contents
@@ -75,28 +72,28 @@ def extract(url: str, months: list, url_template: str, gcs_destination: str) -> 
 def transform(table_id: str):
     client = bigquery.Client()
     query = f"""
-    SELECT 
-        -- Reveneue grouping 
-        PULocationID AS revenue_zone,
-        EXTRACT(MONTH FROM lpep_pickup_datetime) as revenue_month,
+        SELECT 
+            -- Reveneue grouping 
+            PULocationID AS revenue_zone,
+            EXTRACT(MONTH FROM lpep_pickup_datetime) as revenue_month,
 
-        -- Revenue calculation 
-        SUM(fare_amount) AS revenue_monthly_fare,
-        SUM(extra) AS revenue_monthly_extra,
-        SUM(mta_tax) AS revenue_monthly_mta_tax,
-        SUM(tip_amount) AS revenue_monthly_tip_amount,
-        SUM(tolls_amount) AS revenue_monthly_tolls_amount,
-        SUM(improvement_surcharge) AS revenue_monthly_improvement_surcharge,
-        SUM(total_amount) AS revenue_monthly_total_amount,
-        SUM(congestion_surcharge) AS revenue_monthly_congestion_surcharge,
+            -- Revenue calculation 
+            SUM(fare_amount) AS revenue_monthly_fare,
+            SUM(extra) AS revenue_monthly_extra,
+            SUM(mta_tax) AS revenue_monthly_mta_tax,
+            SUM(tip_amount) AS revenue_monthly_tip_amount,
+            SUM(tolls_amount) AS revenue_monthly_tolls_amount,
+            SUM(improvement_surcharge) AS revenue_monthly_improvement_surcharge,
+            SUM(total_amount) AS revenue_monthly_total_amount,
+            SUM(congestion_surcharge) AS revenue_monthly_congestion_surcharge,
 
-        -- Additional calculations
-        AVG(passenger_count) AS avg_montly_passenger_count,
-        AVG(trip_distance) AS avg_montly_trip_distance
-    FROM
-        projectetl.{table_id}
-    GROUP BY
-        1, 2
+            -- Additional calculations
+            AVG(passenger_count) AS avg_montly_passenger_count,
+            AVG(trip_distance) AS avg_montly_trip_distance
+        FROM
+            projectetl.{table_id}
+        GROUP BY
+            1, 2
     """
 
     view_ref = client.dataset('projectetl').table('revenue_report')
@@ -119,10 +116,9 @@ def transform(table_id: str):
       retries=3,
       retry_delay_seconds=60,
       log_prints=True)
-def load(gcs_uri, table_id: str):
+def load(gcs_uri: str, table_id: str):
     """
     """
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SA_PATH
     client = bigquery.Client()
 
     table_ref = client.dataset('projectetl').table(table_id)
@@ -151,15 +147,22 @@ def load(gcs_uri, table_id: str):
 
 @flow(name="Data Ingestion Flow")
 def main_flow(colour: str, months: list):
-    url_source = f"https://d37ci6vzurychx.cloudfront.net/trip-data/{colour}_tripdata_2021-month.parquet"
-    gcs_destination = f"gs://mle-data-pipeline-project/green_taxi/green_tripdata_2021-{months_to_str(months)}.parquet"
+    parquet_filename = f'green_tripdata_2021-{months_to_str(months)}.parquet'
+    
+    url_template = f'https://d37ci6vzurychx.cloudfront.net/trip-data/{colour}_tripdata_2021-month.parquet'
+    gcs_destination = f'gs://mle-data-pipeline-project/green_taxi/{parquet_filename}'
+
+    bucket_name = "mle-data-pipeline-project"
     table_id = f"{colour}_taxi"
-    extract(url_source, months, url_source, gcs_destination)
+
+    extract(url_template, bucket_name, parquet_filename)
+
     load(gcs_destination, table_id)
+
     transform(table_id)
 
 
 if __name__ == '__main__':
     colour = 'green'
-    months = [1, 2, 3]
+    months = [1, 2, 3,10]
     main_flow(colour, months)
