@@ -1,20 +1,21 @@
+import os
 import shutil
 import tempfile
+from time import time
+
 import pandas as pd
 import pyarrow.parquet as pq
-from sqlalchemy import create_engine
-from time import time
-import os
 import wget
+from google.cloud import bigquery, storage
 from prefect import flow, task
 from prefect_sqlalchemy import SqlAlchemyConnector
 from rich import print
-from google.cloud import storage, bigquery
-
+from sqlalchemy import create_engine
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "./project-etl.json"
 
 STORAGE_CLIENT = storage.Client()
+
 
 def months_to_str(month: list):
     month_range = '-'.join(str(month) for month in months)
@@ -106,7 +107,7 @@ def transform(table_id: str):
         client.delete_table(view_ref)
     except:
         print('{table_ref} does not exist. Creating view')
-    
+
     client.create_table(view)
 
     print("View created successfully.")
@@ -148,7 +149,7 @@ def load(gcs_uri: str, table_id: str):
 @flow(name="Data Ingestion Flow")
 def main_flow(colour: str, months: list):
     parquet_filename = f'green_tripdata_2021-{months_to_str(months)}.parquet'
-    
+
     url_template = f'https://d37ci6vzurychx.cloudfront.net/trip-data/{colour}_tripdata_2021-month.parquet'
     gcs_destination = f'gs://mle-data-pipeline-project/green_taxi/{parquet_filename}'
 
@@ -164,5 +165,5 @@ def main_flow(colour: str, months: list):
 
 if __name__ == '__main__':
     colour = 'green'
-    months = [1, 2, 3,10]
+    months = [1, 2, 3, 10]
     main_flow(colour, months)
