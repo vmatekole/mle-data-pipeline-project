@@ -1,0 +1,8 @@
+
+version: 2
+
+models:
+    - name: revenue_report
+      description: "Green taxis model"
+    
+            
