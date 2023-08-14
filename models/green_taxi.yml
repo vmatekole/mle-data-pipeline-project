@@ -1,0 +1,9 @@
+
+version: 2
+
+sources:
+  - name: bigquery_prj # this is the source_name
+    schema: projectetl
+
+    tables:
+      - name: green_taxi
